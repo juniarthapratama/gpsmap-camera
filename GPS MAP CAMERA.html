@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>GPS Webcam + Alamat + Timestamp</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:16px;background:#fafafa}
+  video, canvas{max-width:100%;border:1px solid #ccc;border-radius:8px;display:block}
+  .controls{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  button{padding:8px 12px;border-radius:6px;border:1px solid #bbb;background:#f6f6f6;cursor:pointer}
+  #alamat{margin-top:10px;font-size:15px;color:#333}
+</style>
+</head>
+<body>
+<h2>📷 GPS Webcam + Alamat + Timestamp</h2>
+<p>Klik <b>Start Camera</b>, izinkan kamera & lokasi, lalu tekan <b>Capture</b>.</p>
+
+<video id="video" autoplay playsinline width="640" height="480"></video>
+<canvas id="canvas" width="640" height="480" style="display:none"></canvas>
+
+<div class="controls">
+  <button id="startBtn">Start Camera</button>
+  <button id="captureBtn" disabled>Capture</button>
+  <button id="downloadBtn" disabled>Download Foto</button>
+</div>
+
+<p id="alamat">Alamat: belum didapat...</p>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const startBtn = document.getElementById('startBtn');
+const captureBtn = document.getElementById('captureBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const alamatEl = document.getElementById('alamat');
+
+let stream = null;
+let coords = null;
+let alamat = "";
+
+async function getAlamat(lat, lon){
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`;
+    const res = await fetch(url, {headers: {'User-Agent':'gps-camera'}}); 
+    const data = await res.json();
+    return data.display_name || "(alamat tidak ditemukan)";
+  } catch(e) {
+    console.error(e);
+    return "(gagal ambil alamat)";
+  }
+}
+
+startBtn.addEventListener('click', async () => {
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+    captureBtn.disabled = false;
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(async pos=>{
+        coords = pos.coords;
+        alamat = await getAlamat(coords.latitude, coords.longitude);
+        alamatEl.textContent = "Alamat: " + alamat;
+      }, err=>{
+        alamatEl.textContent = "Gagal ambil lokasi: " + err.message;
+      });
+    }
+  }catch(e){
+    alert('Tidak bisa akses kamera: ' + e.message);
+  }
+});
+
+captureBtn.addEventListener('click', async () => {
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:8000}));
+      coords = pos.coords;
+      alamat = await getAlamat(coords.latitude, coords.longitude);
+      alamatEl.textContent = "Alamat: " + alamat;
+    } catch(e) {
+      console.warn("Tidak dapat ambil lokasi:", e);
+    }
+  }
+
+  const ctx = canvas.getContext('2d');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // overlay latar belakang hitam transparan
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  const tinggiOverlay = 90;
+  ctx.fillRect(0, canvas.height - tinggiOverlay, canvas.width, tinggiOverlay);
+
+  // teks overlay
+  ctx.fillStyle = 'white';
+  ctx.font = '16px sans-serif';
+  const y0 = canvas.height - 60;
+  const now = new Date();
+  ctx.fillText("Waktu: " + now.toLocaleString(), 10, y0);
+  if (coords) {
+    ctx.fillText(`Lat: ${coords.latitude.toFixed(6)} | Lon: ${coords.longitude.toFixed(6)}`, 10, y0 + 20);
+  }
+  ctx.fillText("Alamat: " + (alamat || "(tidak diketahui)"), 10, y0 + 40);
+
+  canvas.style.display = 'block';
+  downloadBtn.disabled = false;
+});
+
+downloadBtn.addEventListener('click', ()=>{
+  canvas.toBlob(blob=>{
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `foto_gps_${Date.now()}.jpg`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },'image/jpeg',0.95);
+});
+</script>
+</body>
+</html>
